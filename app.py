@@ -36,8 +36,7 @@ except Exception as e:
 # CONFIG
 # --------------------------
 DASHBOARD_TITLE_LONG = (
-    "WCC HTPN Dashboard: Operational Data, Defect Tracking, Future Development - Risk Register, "
-    "Heatmap Analysis, and Predictive Risk Modeling"
+    "AI-Driven Dashboard Model for Service Monitoring, Defect Tracking (DLP) & Risk Management in New MOH Healthcare Facilities - WCC HTPN"
 )
 st.set_page_config(page_title=DASHBOARD_TITLE_LONG, layout="wide")
 
@@ -864,9 +863,9 @@ else:
     st.info("Need DEPARTMENT + at least one category column.")
 
 # --------------------------
-# 5) Pending Defects by Level (from cells)
+# 5) Pending Defects by Category (from cells)
 # --------------------------
-st.markdown("## 5) Pending Defects by Level")
+st.markdown("## 5) Pending Defects by Category")
 
 pending_mech = read_csv_cell(csv_url_fresh, row_1based=94, col_letter="L") or 0
 pending_elec = read_csv_cell(csv_url_fresh, row_1based=94, col_letter="O") or 0
@@ -1196,218 +1195,7 @@ else:
     st.info("BCMS risk register needs at least one of: Service, Location, or Department columns.")
 
 # --------------------------
-# 10) BCMS Overview & Watchlist
-# --------------------------
-st.markdown("## 10) BCMS Overview & Watchlist")
-
-svc_unique = sorted(dff["_svc"].astype(str).str.strip().replace("", np.nan).dropna().unique().tolist())
-n_services = len(svc_unique)
-
-if "_bia_flag" in dff.columns and n_services > 0:
-    bia_per_svc = dff.groupby("_svc")["_bia_flag"].max()
-    bia_services = int((bia_per_svc > 0).sum())
-else:
-    bia_services = 0
-
-risk_breach_n = int(dff["_risk_breach"].sum())
-rto_breach_n = int(dff["_rto_breach"].sum())
-bcp_overdue_n = int(dff["_bcp_overdue"].sum())
-
-c1, c2, c3, c4 = st.columns(4)
-with c1:
-    st.markdown("**Services with BIA fields**")
-    st.markdown(f"<h2>{bia_services}</h2>", unsafe_allow_html=True)
-with c2:
-    st.markdown("**Risk score ≥ appetite**")
-    st.markdown(f"<h2>{risk_breach_n}</h2>", unsafe_allow_html=True)
-with c3:
-    st.markdown("**RTO breaches (current data)**")
-    st.markdown(f"<h2>{rto_breach_n}</h2>", unsafe_allow_html=True)
-with c4:
-    st.markdown("**BCP tests overdue**")
-    st.markdown(f"<h2>{bcp_overdue_n}</h2>", unsafe_allow_html=True)
-
-if AUTO_INSIGHTS and n_services > 0:
-    insight_bcms_overview(n_services, bia_services, risk_breach_n, rto_breach_n, bcp_overdue_n)
-
-# Watchlist table
-dff["_bcp_last_test"] = dff[BCP_LAST_COL].astype(str) if BCP_LAST_COL and BCP_LAST_COL in dff.columns else ""
-dff["_bcp_next_due"]  = dff[BCP_NEXT_COL].astype(str) if BCP_NEXT_COL and BCP_NEXT_COL in dff.columns else ""
-dff["_workaround"]    = dff[WORKAROUND_COL].astype(str) if WORKAROUND_COL and WORKAROUND_COL in dff.columns else ""
-dff["_updep"]         = dff[UPDEP_COL].astype(str) if UPDEP_COL and UPDEP_COL in dff.columns else ""
-
-flag_cols = ["_risk_breach", "_rto_breach", "_mtpd_breach"]
-
-watch_cols = [
-    "_svc", "_owner", "_disrupt_days", "_rto_h", "_mtpd_h",
-    "_gap_rto_h", "_gap_mtpd_h",
-    "_risk_score", "_impact_band", "_likelihood_band",
-    "_bcp_last_test", "_bcp_next_due", "_bcp_overdue",
-    "_workaround", "_updep", LEVEL, DEPT, LOC,
-] + flag_cols
-
-for c in watch_cols:
-    if c not in dff.columns:
-        dff[c] = dff.get(c, "")
-
-watch = dff[
-    (dff["_risk_breach"]) |
-    (dff["_rto_breach"]) |
-    (dff["_mtpd_breach"]) |
-    (dff["_disrupt_days"] >= DISRUPT_ALERT_DAYS)
-][watch_cols].copy()
-
-for c in flag_cols:
-    watch[c] = watch[c].fillna(False).astype(bool)
-
-if not watch.empty:
-    watch = watch.sort_values(
-        ["_risk_breach", "_rto_breach", "_mtpd_breach", "_disrupt_days"],
-        ascending=[False, False, False, False]
-    )
-
-    display_watch = watch.rename(columns={
-        "_svc": "Service",
-        "_owner": "Risk Owner",
-        "_disrupt_days": "Disruption (days)",
-        "_rto_h": "RTO (h)",
-        "_mtpd_h": "MTPD (h)",
-        "_gap_rto_h": "Gap vs RTO (h)",
-        "_gap_mtpd_h": "Gap vs MTPD (h)",
-        "_risk_score": "Risk (I×L)",
-        "_impact_band": "Impact band",
-        "_likelihood_band": "Likelihood band",
-        "_bcp_last_test": "BCP last test",
-        "_bcp_next_due": "BCP next due",
-        "_bcp_overdue": "BCP overdue?",
-        "_workaround": "Workaround",
-        "_updep": "Upstream dependency",
-    })
-
-    st.dataframe(display_watch, use_container_width=True, height=360)
-
-    st.download_button(
-        "Download BCMS Watchlist (CSV)",
-        data=display_watch.to_csv(index=False).encode("utf-8"),
-        file_name="bcms_watchlist.csv",
-        mime="text/csv",
-    )
-else:
-    st.info("No services currently breaching risk appetite, RTO/MTPD, or disruption alerts.")
-
-# --------------------------
-# 11) Heatmap — Service × Risk Band
-# --------------------------
-st.markdown("## 11) Heatmap — Service × Risk Band")
-
-if "_risk_score" in dff.columns:
-    dff["_risk_band_str"] = pd.cut(
-        dff["_risk_score"],
-        bins=[0, 5, 10, 15, 20, 25],
-        labels=["1–5", "6–10", "11–15", "16–20", "21–25"],
-        include_lowest=True,
-    ).astype(str)
-
-    if "_svc" in dff.columns:
-        heat_svc = (
-            dff.groupby(["_svc", "_risk_band_str"])
-               .size()
-               .unstack(fill_value=0)
-               .sort_index()
-        )
-        heat_svc.index.name = "Service"
-        heat_svc.columns.name = "Risk band"
-
-        if not heat_svc.empty:
-            fig_hsvc = px.imshow(
-                heat_svc,
-                aspect="auto",
-                labels={"x": "Risk band (I×L)", "y": "Service", "color": "Count"},
-                title="Service × Risk band"
-            )
-            st.plotly_chart(fig_hsvc, use_container_width=True)
-
-            if AUTO_INSIGHTS:
-                insight_heatmap_simple(heat_svc, "Service", "Risk band")
-        else:
-            st.info("No BCMS risk scores to plot for services.")
-    else:
-        st.info("Service column not found (for heatmap).")
-else:
-    st.info("Risk scores not available for heatmap.")
-
-# --------------------------
-# 11b) Heatmap — Department × Risk Band
-# --------------------------
-st.markdown("## 11b) Heatmap — Department × Risk Band")
-
-if "_risk_score" in dff.columns and DEPT and DEPT in dff.columns:
-    heat_dept = (
-        dff.groupby([DEPT, "_risk_band_str"])
-           .size()
-           .unstack(fill_value=0)
-           .sort_index()
-    )
-    heat_dept.index.name = "Department"
-    heat_dept.columns.name = "Risk band"
-
-    if not heat_dept.empty:
-        fig_hdept = px.imshow(
-            heat_dept,
-            aspect="auto",
-            labels={"x": "Risk band (I×L)", "y": "Department", "color": "Count"},
-            title="Department × Risk band"
-        )
-        st.plotly_chart(fig_hdept, use_container_width=True)
-
-        if AUTO_INSIGHTS:
-            insight_heatmap_simple(heat_dept, "Department", "Risk band")
-    else:
-        st.info("No BCMS risk scores to plot for departments.")
-else:
-    st.info("Need Department column and BCMS risk scores for department heatmap.")
-
-# --------------------------
-# 12) Regression — Disruption vs Total Defects
-# --------------------------
-st.markdown("## 12) Regression — Disruption vs Total Defects")
-if TOTAL_DEFECT and IMPACT_DAYS_COL and (TOTAL_DEFECT in dff.columns) and (IMPACT_DAYS_COL in dff.columns):
-    x = safe_num(dff[TOTAL_DEFECT]).fillna(0)
-    y = pd.to_numeric(
-        dff[IMPACT_DAYS_COL].astype(str).str.replace(",", "", regex=False).str.extract(r"(-?\d+\.?\d*)", expand=False),
-        errors="coerce"
-    ).fillna(0)
-
-    try:
-        from numpy.linalg import lstsq
-        Xmat = np.column_stack([np.ones_like(x), x])
-        beta, *_ = lstsq(Xmat, y.values, rcond=None)
-        y_hat = Xmat @ beta
-        ss_res = np.sum((y.values - y_hat)**2)
-        ss_tot = np.sum((y.values - y.values.mean())**2)
-        r2 = 1 - (ss_res/ss_tot) if ss_tot > 0 else np.nan
-        slope = float(beta[1])
-        r = np.corrcoef(x.values, y.values)[0, 1] if len(x) > 1 else np.nan
-    except Exception:
-        slope, r2, r = None, None, np.nan
-
-    fig_sc = go.Figure()
-    fig_sc.add_trace(go.Scatter(x=x, y=y, mode="markers", name="Data"))
-    if slope is not None:
-        fig_sc.add_trace(go.Scatter(x=x, y=y_hat, mode="lines", name="Fit"))
-    fig_sc.update_layout(
-        xaxis_title="Total defects",
-        yaxis_title="Disruption (days)",
-        height=380,
-        margin=dict(l=0, r=0, t=10, b=0)
-    )
-    st.plotly_chart(fig_sc, use_container_width=True)
-    insight_regression("Total defects", "Disruption (days)", r, slope=slope, r2=r2)
-else:
-    st.info("Need TOTAL_DEFECT and disruption 'days' columns for regression.")
-
-# --------------------------
-# 13) Data Master Severity & Disruption by Location
+# Data Master Severity & Disruption by Location
 # --------------------------
 st.markdown("## 13) Data Master Severity & Disruption by Location")
 sev_cols, sev_labels = [], []
@@ -1460,9 +1248,8 @@ if LOC and sev_cols:
         st.info("Severity columns not found in filtered data.")
 else:
     st.info("Need LOCATION and severity columns.")
-
 # --------------------------
-# 14) Data Master (All Rows & Columns)
+# Data Master (All Rows & Columns)
 # --------------------------
 st.markdown("## 14) Data Master (All Rows & Columns)")
 q = st.text_input("Quick search (matches anywhere in row; case-insensitive):", value="")
