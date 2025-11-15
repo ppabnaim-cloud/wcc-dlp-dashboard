@@ -825,9 +825,9 @@ else:
     st.info("Need DEPARTMENT + TOTAL_DEFECT to plot.")
 
 # --------------------------
-# 3) Category breakdowns
+# 3) Category Breakdown by Level
 # --------------------------
-st.markdown("## 3) Category Breakdown by Level (Mechanical/Electrical/Public/Biomedical/ICT)")
+st.markdown("## 3) Category Breakdown by Level")
 found_cats = {k: v for k, v in cat_cols.items() if v is not None}
 if LEVEL and found_cats:
     melt_cols = list(found_cats.values())
@@ -863,7 +863,7 @@ else:
     st.info("Need DEPARTMENT + at least one category column.")
 
 # --------------------------
-# 5) Pending Defects by Category (from cells)
+# 5) Pending Defects (Category Breakdown (from cells)
 # --------------------------
 st.markdown("## 5) Pending Defects by Category")
 
@@ -899,20 +899,152 @@ st.caption(
 )
 
 # --------------------------
-# 6) Operational Status Pie
+# 6A) Operational Status Pie
 # --------------------------
-st.markdown("## 6) Operational Status — Percentage")
+st.markdown("## 6A) Operational Status — Percentage")
 if OPSTAT:
     counts = dff[OPSTAT].astype(str).str.strip().replace({"": "Unknown", "nan": "Unknown"}).value_counts(dropna=False)
     pie_df = counts.rename_axis("Status").reset_index(name="Count")
-    st.plotly_chart(
-        px.pie(pie_df, names="Status", values="Count", title="Operational Status (%)", hole=0.35),
-        use_container_width=True,
+    
+    # Define custom color mapping
+    color_map = {
+        "Pending": "#FF0000",      # Red
+        "pending": "#FF0000",      # Red (lowercase)
+        "Rotational": "#0000FF",   # Blue
+        "rotational": "#0000FF",   # Blue (lowercase)
+        "Operational": "#00FF00",  # Green
+        "operational": "#00FF00",  # Green (lowercase)
+    }
+    
+    # Create pie chart with custom colors
+    fig = px.pie(
+        pie_df, 
+        names="Status", 
+        values="Count", 
+        title="Operational Status (%)", 
+        hole=0.35,
+        color="Status",
+        color_discrete_map=color_map
     )
+    
+    st.plotly_chart(fig, use_container_width=True)
+    
     if AUTO_INSIGHTS:
         insight_pie_status(pie_df, name_col="Status", count_col="Count")
 else:
     st.info("Need OPERATIONAL STATUS column.")
+# --------------------------
+# 6B) Defects by Location & Operational Status
+# --------------------------
+st.markdown("## 6B) Defects by Location & Operational Status (Rotational vs Pending)")
+
+if LOC and OPSTAT and TOTAL_DEFECT:
+    # Filter for Rotational and Pending only
+    status_filter = dff[OPSTAT].astype(str).str.lower().str.strip().isin(['rotational', 'pending'])
+    filtered = dff[status_filter].copy()
+    
+    if not filtered.empty:
+        # Prepare data
+        filtered['_total_def'] = safe_num(filtered[TOTAL_DEFECT]).fillna(0)
+        filtered['_status_clean'] = filtered[OPSTAT].astype(str).str.strip()
+        
+        # Group by location and status
+        g = (
+            filtered.groupby([LOC, '_status_clean'], dropna=False)['_total_def']
+            .sum()
+            .reset_index()
+        )
+        
+        # Create stacked bar chart
+        fig = px.bar(
+            g, 
+            x=LOC, 
+            y='_total_def', 
+            color='_status_clean',
+            title="Defects by Location (Rotational vs Pending)",
+            labels={'_total_def': 'Total Defects', '_status_clean': 'Status'},
+            text='_total_def',
+            color_discrete_map={
+                'Pending': '#FF0000',
+                'pending': '#FF0000',
+                'Rotational': '#0000FF',
+                'rotational': '#0000FF'
+            }
+        )
+        fig.update_traces(textposition='inside')
+        fig.update_layout(xaxis_title="Location", yaxis_title="Total Defects", barmode='stack')
+        st.plotly_chart(fig, use_container_width=True)
+        
+        if AUTO_INSIGHTS:
+            total_rot = g[g['_status_clean'].str.lower() == 'rotational']['_total_def'].sum()
+            total_pend = g[g['_status_clean'].str.lower() == 'pending']['_total_def'].sum()
+            n_rot = len(g[g['_status_clean'].str.lower() == 'rotational'])
+            n_pend = len(g[g['_status_clean'].str.lower() == 'pending'])
+            
+            st.caption(
+                f"**Auto-insights:** **{n_rot}** rotational locations with **{int(total_rot):,}** defects. "
+                f"**{n_pend}** pending locations with **{int(total_pend):,}** defects. "
+                f"Total: **{int(total_rot + total_pend):,}** defects across rotational/pending locations."
+            )
+    else:
+        st.info("No locations with 'Rotational' or 'Pending' status found.")
+else:
+    st.info("Need LOCATION, OPERATIONAL STATUS, and TOTAL_DEFECT columns.")
+
+st.write("---")
+
+# --------------------------
+# 6C) Rotational & Pending Locations - Detailed Table
+# --------------------------
+st.markdown("## 6C) Rotational & Pending Locations - Detailed View")
+
+if LOC and OPSTAT:
+    # Filter for Rotational and Pending
+    status_filter = dff[OPSTAT].astype(str).str.lower().str.strip().isin(['rotational', 'pending'])
+    filtered = dff[status_filter].copy()
+    
+    if not filtered.empty:
+        # Prepare columns to display
+        display_cols = [LOC, OPSTAT]
+        if DEPT: display_cols.append(DEPT)
+        if LEVEL: display_cols.append(LEVEL)
+        if TOTAL_DEFECT: display_cols.append(TOTAL_DEFECT)
+        if PENDING_TOTAL: display_cols.append(PENDING_TOTAL)
+        
+        # Add disruption column if it exists (get it from colmap)
+        disrupt_col = colmap.get("clinical_disruption_days")
+        if disrupt_col and disrupt_col in filtered.columns:
+            display_cols.append(disrupt_col)
+        
+        # Get unique columns
+        display_cols = list(dict.fromkeys([c for c in display_cols if c in filtered.columns]))
+        
+        view = filtered[display_cols].copy()
+        
+        # Clean status column
+        view[OPSTAT] = view[OPSTAT].astype(str).str.strip()
+        
+        # Sort by status (Pending first) then by total defects
+        if TOTAL_DEFECT in view.columns:
+            view['_sort_def'] = safe_num(view[TOTAL_DEFECT]).fillna(0)
+            view = view.sort_values([OPSTAT, '_sort_def'], ascending=[True, False])
+            view = view.drop('_sort_def', axis=1)
+        
+        st.dataframe(view, use_container_width=True, height=400)
+        
+        if AUTO_INSIGHTS:
+            n_rot = (filtered[OPSTAT].astype(str).str.lower().str.strip() == 'rotational').sum()
+            n_pend = (filtered[OPSTAT].astype(str).str.lower().str.strip() == 'pending').sum()
+            st.caption(
+                f"**Auto-insights:** Showing **{len(filtered)}** locations "
+                f"(**{n_rot}** rotational, **{n_pend}** pending)."
+            )
+    else:
+        st.info("No locations with 'Rotational' or 'Pending' status found.")
+else:
+    st.info("Need LOCATION and OPERATIONAL STATUS columns.")
+
+st.write("---")
 
 # --------------------------
 # 7) Service Disruption by Location — Days
@@ -1193,6 +1325,62 @@ if id_cols:
         insight_bcms_risk(reg, BCMS_RISK_APPETITE)
 else:
     st.info("BCMS risk register needs at least one of: Service, Location, or Department columns.")
+
+# --------------------------
+# 11) Chi-Square Test: Operational Status vs Defect Severity
+# --------------------------
+st.markdown("## 11) Chi-Square Test: Operational Status vs Defect Presence")
+
+if OPSTAT and TOTAL_DEFECT:
+    try:
+        from scipy.stats import chi2_contingency
+        
+        tmp = dff[[OPSTAT, TOTAL_DEFECT]].copy()
+        tmp['_status'] = tmp[OPSTAT].astype(str).str.strip()
+        tmp['_defect_present'] = (safe_num(tmp[TOTAL_DEFECT]).fillna(0) > 0).astype(int)
+        
+        # Create contingency table
+        contingency = pd.crosstab(tmp['_status'], tmp['_defect_present'])
+        
+        if contingency.shape[0] >= 2 and contingency.shape[1] >= 2:
+            chi2, p_value, dof, expected = chi2_contingency(contingency)
+            
+            # Visualize contingency table
+            fig = px.imshow(
+                contingency,
+                text_auto=True,
+                aspect="auto",
+                title=f"Contingency Table: Status vs Defect Presence (χ²={chi2:.2f}, p={p_value:.4f})",
+                labels=dict(x="Has Defects", y="Operational Status", color="Count"),
+                color_continuous_scale='Blues'
+            )
+            st.plotly_chart(fig, use_container_width=True)
+            
+            if AUTO_INSIGHTS:
+                significance = "statistically significant" if p_value < 0.05 else "not statistically significant"
+                st.caption(
+                    f"**Auto-insights:** Chi-square test (χ²={chi2:.2f}, df={dof}, p={p_value:.4f}) "
+                    f"shows the relationship between operational status and defect presence is {significance}. "
+                    f"{'Different operational statuses have significantly different defect patterns.' if p_value < 0.05 else 'No significant difference in defect patterns across statuses.'}"
+                )
+                
+                # Show expected vs observed
+                with st.expander("Expected vs Observed Frequencies"):
+                    col1, col2 = st.columns(2)
+                    with col1:
+                        st.write("**Observed:**")
+                        st.dataframe(contingency)
+                    with col2:
+                        st.write("**Expected:**")
+                        st.dataframe(pd.DataFrame(expected, 
+                                                   index=contingency.index, 
+                                                   columns=contingency.columns).round(2))
+    except Exception as e:
+        st.warning(f"Could not perform chi-square test: {e}")
+else:
+    st.info("Need OPERATIONAL STATUS and TOTAL_DEFECT columns.")
+
+st.write("---")
 
 # --------------------------
 # Data Master Severity & Disruption by Location
