@@ -1436,7 +1436,7 @@ if OPSTAT and DISRUPT_COL and (OPSTAT in dff.columns) and (DISRUPT_COL in dff.co
     
     if len(analysis_df) > 0:
         # Summary statistics by group
-        st.markdown("### 10.1) Descriptive Statistics")
+        st.markdown("### 10a) Descriptive Statistics")
         
         summary = analysis_df.groupby('Status_Clean')['Disruption_Days'].agg([
             ('Count', 'count'),
@@ -1467,7 +1467,7 @@ if OPSTAT and DISRUPT_COL and (OPSTAT in dff.columns) and (DISRUPT_COL in dff.co
             )
         
         # Visualization: Box plots
-        st.markdown("### 10.2) Distribution Comparison (Box Plots)")
+        st.markdown("### 10b) Distribution Comparison (Box Plots)")
         fig_box = px.box(
             analysis_df, 
             x='Status_Clean', 
@@ -1527,7 +1527,7 @@ if OPSTAT and DISRUPT_COL and (OPSTAT in dff.columns) and (DISRUPT_COL in dff.co
             )
         
         # Violin plot for distribution shape
-        st.markdown("### 10.3) Distribution Shape (Violin Plots)")
+        st.markdown("### 10c) Distribution Shape (Violin Plots)")
         fig_violin = px.violin(
             analysis_df,
             x='Status_Clean',
@@ -1616,7 +1616,7 @@ if OPSTAT and DISRUPT_COL and (OPSTAT in dff.columns) and (DISRUPT_COL in dff.co
                 )
         
         # Statistical Tests
-        st.markdown("### 10.4) Statistical Hypothesis Testing")
+        st.markdown("### 10d) Statistical Hypothesis Testing")
         
         # Prepare groups for testing
         active_data = analysis_df[analysis_df['Status_Clean'] == 'active']['Disruption_Days']
@@ -1801,7 +1801,7 @@ if OPSTAT and DISRUPT_COL and (OPSTAT in dff.columns) and (DISRUPT_COL in dff.co
             mean_rotation = rotation_data.mean() if len(rotation_data) > 0 else 0
             mean_pending = pending_data.mean() if len(pending_data) > 0 else 0
             
-            st.markdown("### 14.5) Key Findings Summary")
+            st.markdown("### 10e) Key Findings Summary")
             st.caption(
                 f"**Auto-insights:** Analyzed **{total_locations}** locations. "
                 f"Mean disruption days: Active={mean_active:.1f}, Rotation={mean_rotation:.1f}, Pending={mean_pending:.1f}. "
