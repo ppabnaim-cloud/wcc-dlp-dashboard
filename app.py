@@ -750,9 +750,9 @@ if OPSTAT and picked_stats:
 dff = df.loc[mask].copy()
 
 # --------------------------
-# 1) Total Defect by Level
+# 1) Number of defect complaints according to level 1 until level 10 WCC
 # --------------------------
-st.markdown("## 1) Total Defect by Level")
+st.markdown("## 1) Number of Defect Complaints According to Level 1 until Level 10 in WCC")
 
 if TOTAL_DEFECT and LEVEL:
     g_lvl = (
@@ -792,9 +792,9 @@ else:
 st.write("---")
 
 # --------------------------
-# 2) Total Defect by Department
+# 2) Number of defect complaints according department in WCC
 # --------------------------
-st.markdown("## 2) Total Defect by Department")
+st.markdown("## 2) Number of Defect Complaints According Department in WCC")
 
 if TOTAL_DEFECT and DEPT:
     g_dept = (
@@ -824,10 +824,84 @@ if TOTAL_DEFECT and DEPT:
 else:
     st.info("Need DEPARTMENT + TOTAL_DEFECT to plot.")
 
+st.write("---")
+
+st.write("---")
+
 # --------------------------
-# 3) Category Breakdown by Level
+# 3) Defect Categories - Pie Chart Distribution
 # --------------------------
-st.markdown("## 3) Category Breakdown by Level")
+st.markdown("## 3) Defect Categories - Pie Chart Distribution")
+
+# Define category colors (needed for pie chart)
+category_colors = {
+    'Mechanical': '#FF6B6B',    # Red
+    'Electrical': '#FFA500',    # Orange
+    'Public': '#4ECDC4',        # Teal
+    'Biomedical': '#95E1D3',    # Light Green
+    'Ict': '#A569BD'            # Purple
+}
+
+# Get available category columns
+found_cats = {k: v for k, v in cat_cols.items() if v is not None}
+
+if found_cats:
+    category_totals = []
+    
+    for cat_name, col_name in found_cats.items():
+        if col_name in dff.columns:
+            total = safe_num(dff[col_name]).fillna(0).sum()
+            if total > 0:  # Only include categories with defects
+                category_totals.append({
+                    'Category': cat_name.title(),
+                    'Total Defects': float(total)
+                })
+    
+    if category_totals:
+        cat_df = pd.DataFrame(category_totals)
+        
+        # Create pie chart
+        fig_pie = px.pie(
+            cat_df,
+            names='Category',
+            values='Total Defects',
+            title="Defect Category Distribution (%)",
+            color='Category',
+            color_discrete_map=category_colors,
+            hole=0.4  # Donut chart style
+        )
+        
+        fig_pie.update_traces(
+            textposition='outside',
+            textinfo='label+percent+value',
+            texttemplate='%{label}<br>%{value:,.0f}<br>(%{percent})'
+        )
+        
+        fig_pie.update_layout(height=500)
+        
+        st.plotly_chart(fig_pie, use_container_width=True)
+        
+        if AUTO_INSIGHTS:
+            total = cat_df['Total Defects'].sum()
+            largest = cat_df.sort_values('Total Defects', ascending=False).iloc[0]
+            largest_pct = (largest['Total Defects'] / total * 100)
+            
+            st.caption(
+                f"**Pie chart insight:** **{largest['Category']}** dominates with **{largest_pct:.1f}%** "
+                f"of all defects. This visualization shows the relative proportion of each category."
+            )
+    else:
+        st.info("No defects found in any category.")
+
+else:
+    st.info("Need category columns for pie chart.")
+
+st.write("---")
+
+# --------------------------
+# 4) Defect Category According to Level 1 until Level 10 in WCC
+# --------------------------
+st.markdown("## 4) Defect Category According to Level 1 until Level 10 in WCC")
 found_cats = {k: v for k, v in cat_cols.items() if v is not None}
 if LEVEL and found_cats:
     melt_cols = list(found_cats.values())
@@ -845,7 +919,12 @@ if LEVEL and found_cats:
 else:
     st.info("Need LEVEL + at least one category column.")
 
-st.markdown("## 4) Category Breakdown by Department")
+
+# --------------------------
+# 5) Defect Category According to Department in WCC
+# --------------------------
+
+st.markdown("## 5) Defect Category According to Department in WCC")
 if DEPT and found_cats:
     melt_cols = list(found_cats.values())
     tmp = dff[[DEPT] + melt_cols].copy().melt(id_vars=[DEPT], var_name="CategoryCol", value_name="Count")
@@ -863,9 +942,9 @@ else:
     st.info("Need DEPARTMENT + at least one category column.")
 
 # --------------------------
-# 5) Pending Defects (Category Breakdown (from cells)
+# 6) Pending Defects (Category Breakdown (from cells)
 # --------------------------
-st.markdown("## 5) Pending Defects by Category")
+st.markdown("## 6) Pending Defects by Category")
 
 pending_mech = read_csv_cell(csv_url_fresh, row_1based=94, col_letter="L") or 0
 pending_elec = read_csv_cell(csv_url_fresh, row_1based=94, col_letter="O") or 0
@@ -899,7 +978,7 @@ st.caption(
 )
 
 # --------------------------
-# 6A) Operational Status Pie
+# 7A) Operational Status Pie
 # --------------------------
 st.markdown("## 6A) Operational Status — Percentage")
 if OPSTAT:
@@ -910,10 +989,10 @@ if OPSTAT:
     color_map = {
         "Pending": "#FF0000",      # Red
         "pending": "#FF0000",      # Red (lowercase)
-        "Rotational": "#0000FF",   # Blue
-        "rotational": "#0000FF",   # Blue (lowercase)
-        "Operational": "#00FF00",  # Green
-        "operational": "#00FF00",  # Green (lowercase)
+        "Rotation": "#0000FF",   # Blue
+        "rotation": "#0000FF",   # Blue (lowercase)
+        "Active": "#00FF00",  # Green
+        "Active": "#00FF00",  # Green (lowercase)
     }
     
     # Create pie chart with custom colors
@@ -933,14 +1012,15 @@ if OPSTAT:
         insight_pie_status(pie_df, name_col="Status", count_col="Count")
 else:
     st.info("Need OPERATIONAL STATUS column.")
+    
 # --------------------------
-# 6B) Defects by Location & Operational Status
+# 7B) Defects by Location & Operational Status
 # --------------------------
-st.markdown("## 6B) Defects by Location & Operational Status (Rotational vs Pending)")
+st.markdown("## 6B) Defects by Location & Operational Status (Rotation vs Pending)")
 
 if LOC and OPSTAT and TOTAL_DEFECT:
-    # Filter for Rotational and Pending only
-    status_filter = dff[OPSTAT].astype(str).str.lower().str.strip().isin(['rotational', 'pending'])
+    # Filter for Rotation and Pending only
+    status_filter = dff[OPSTAT].astype(str).str.lower().str.strip().isin(['rotation', 'pending'])
     filtered = dff[status_filter].copy()
     
     if not filtered.empty:
@@ -961,14 +1041,14 @@ if LOC and OPSTAT and TOTAL_DEFECT:
             x=LOC, 
             y='_total_def', 
             color='_status_clean',
-            title="Defects by Location (Rotational vs Pending)",
+            title="Defects by Location (Rotation vs Pending)",
             labels={'_total_def': 'Total Defects', '_status_clean': 'Status'},
             text='_total_def',
             color_discrete_map={
                 'Pending': '#FF0000',
                 'pending': '#FF0000',
-                'Rotational': '#0000FF',
-                'rotational': '#0000FF'
+                'Rotation': '#0000FF',
+                'rotation': '#0000FF'
             }
         )
         fig.update_traces(textposition='inside')
@@ -976,31 +1056,31 @@ if LOC and OPSTAT and TOTAL_DEFECT:
         st.plotly_chart(fig, use_container_width=True)
         
         if AUTO_INSIGHTS:
-            total_rot = g[g['_status_clean'].str.lower() == 'rotational']['_total_def'].sum()
+            total_rot = g[g['_status_clean'].str.lower() == 'rotation']['_total_def'].sum()
             total_pend = g[g['_status_clean'].str.lower() == 'pending']['_total_def'].sum()
-            n_rot = len(g[g['_status_clean'].str.lower() == 'rotational'])
+            n_rot = len(g[g['_status_clean'].str.lower() == 'rotation'])
             n_pend = len(g[g['_status_clean'].str.lower() == 'pending'])
             
             st.caption(
-                f"**Auto-insights:** **{n_rot}** rotational locations with **{int(total_rot):,}** defects. "
+                f"**Auto-insights:** **{n_rot}** rotation locations with **{int(total_rot):,}** defects. "
                 f"**{n_pend}** pending locations with **{int(total_pend):,}** defects. "
-                f"Total: **{int(total_rot + total_pend):,}** defects across rotational/pending locations."
+                f"Total: **{int(total_rot + total_pend):,}** defects across rotation/pending locations."
             )
     else:
-        st.info("No locations with 'Rotational' or 'Pending' status found.")
+        st.info("No locations with 'Rotation' or 'Pending' status found.")
 else:
     st.info("Need LOCATION, OPERATIONAL STATUS, and TOTAL_DEFECT columns.")
 
 st.write("---")
 
 # --------------------------
-# 6C) Rotational & Pending Locations - Detailed Table
+# 6C) Rotation & Pending Locations - Detailed Table
 # --------------------------
-st.markdown("## 6C) Rotational & Pending Locations - Detailed View")
+st.markdown("## 6C) Rotation & Pending Locations - Detailed View")
 
 if LOC and OPSTAT:
-    # Filter for Rotational and Pending
-    status_filter = dff[OPSTAT].astype(str).str.lower().str.strip().isin(['rotational', 'pending'])
+    # Filter for Rotation and Pending
+    status_filter = dff[OPSTAT].astype(str).str.lower().str.strip().isin(['rotation', 'pending'])
     filtered = dff[status_filter].copy()
     
     if not filtered.empty:
@@ -1033,14 +1113,14 @@ if LOC and OPSTAT:
         st.dataframe(view, use_container_width=True, height=400)
         
         if AUTO_INSIGHTS:
-            n_rot = (filtered[OPSTAT].astype(str).str.lower().str.strip() == 'rotational').sum()
+            n_rot = (filtered[OPSTAT].astype(str).str.lower().str.strip() == 'rotation').sum()
             n_pend = (filtered[OPSTAT].astype(str).str.lower().str.strip() == 'pending').sum()
             st.caption(
                 f"**Auto-insights:** Showing **{len(filtered)}** locations "
-                f"(**{n_rot}** rotational, **{n_pend}** pending)."
+                f"(**{n_rot}** rotation, **{n_pend}** pending)."
             )
     else:
-        st.info("No locations with 'Rotational' or 'Pending' status found.")
+        st.info("No locations with 'Rotation' or 'Pending' status found.")
 else:
     st.info("Need LOCATION and OPERATIONAL STATUS columns.")
 
@@ -1326,66 +1406,647 @@ if id_cols:
 else:
     st.info("BCMS risk register needs at least one of: Service, Location, or Department columns.")
 
-# --------------------------
-# 11) Chi-Square Test: Operational Status vs Defect Severity
-# --------------------------
-st.markdown("## 11) Chi-Square Test: Operational Status vs Defect Presence")
+st.write("---")
 
-if OPSTAT and TOTAL_DEFECT:
-    try:
-        from scipy.stats import chi2_contingency
+# --------------------------
+# 10) Statistical Analysis: Operational Status vs Clinical Disruption
+# --------------------------
+st.markdown("## 10) Statistical Analysis: Operational Status vs Clinical Disruption")
+
+if OPSTAT and DISRUPT_COL and (OPSTAT in dff.columns) and (DISRUPT_COL in dff.columns):
+    st.markdown("""
+    **Objective:** Compare clinical service disruption days across three operational status groups:
+    - Group 1: Active
+    - Group 2: Rotation
+    - Group 3: Pending
+    """)
+    
+    # Prepare data
+    analysis_df = dff[[OPSTAT, DISRUPT_COL]].copy()
+    analysis_df['Status_Clean'] = analysis_df[OPSTAT].astype(str).str.lower().str.strip()
+    analysis_df['Disruption_Days'] = pd.to_numeric(
+        analysis_df[DISRUPT_COL].astype(str)
+            .str.replace(",", "", regex=False)
+            .str.extract(r"(-?\d+\.?\d*)", expand=False),
+        errors="coerce"
+    ).fillna(0)
+    
+    # Filter for the three groups
+    analysis_df = analysis_df[analysis_df['Status_Clean'].isin(['active', 'rotation', 'pending'])].copy()
+    
+    if len(analysis_df) > 0:
+        # Summary statistics by group
+        st.markdown("### 10.1) Descriptive Statistics")
         
-        tmp = dff[[OPSTAT, TOTAL_DEFECT]].copy()
-        tmp['_status'] = tmp[OPSTAT].astype(str).str.strip()
-        tmp['_defect_present'] = (safe_num(tmp[TOTAL_DEFECT]).fillna(0) > 0).astype(int)
+        summary = analysis_df.groupby('Status_Clean')['Disruption_Days'].agg([
+            ('Count', 'count'),
+            ('Mean', 'mean'),
+            ('Median', 'median'),
+            ('Std Dev', 'std'),
+            ('Min', 'min'),
+            ('Max', 'max'),
+            ('Q1', lambda x: x.quantile(0.25)),
+            ('Q3', lambda x: x.quantile(0.75))
+        ]).round(2)
         
-        # Create contingency table
-        contingency = pd.crosstab(tmp['_status'], tmp['_defect_present'])
+        st.dataframe(summary, use_container_width=True)
         
-        if contingency.shape[0] >= 2 and contingency.shape[1] >= 2:
-            chi2, p_value, dof, expected = chi2_contingency(contingency)
+        if AUTO_INSIGHTS:
+            highest_mean = summary['Mean'].idxmax()
+            highest_mean_val = summary.loc[highest_mean, 'Mean']
+            lowest_mean = summary['Mean'].idxmin()
+            lowest_mean_val = summary.loc[lowest_mean, 'Mean']
+            highest_var = summary['Std Dev'].idxmax()
+            highest_var_val = summary.loc[highest_var, 'Std Dev']
             
-            # Visualize contingency table
-            fig = px.imshow(
-                contingency,
-                text_auto=True,
-                aspect="auto",
-                title=f"Contingency Table: Status vs Defect Presence (χ²={chi2:.2f}, p={p_value:.4f})",
-                labels=dict(x="Has Defects", y="Operational Status", color="Count"),
-                color_continuous_scale='Blues'
+            st.caption(
+                f"**Auto-insights (Descriptive):** **{highest_mean.title()}** status has highest mean disruption "
+                f"(**{highest_mean_val:.1f} days**), while **{lowest_mean.title()}** has lowest "
+                f"(**{lowest_mean_val:.1f} days**). **{highest_var.title()}** shows highest variability "
+                f"(SD={highest_var_val:.1f}), indicating inconsistent disruption patterns."
             )
-            st.plotly_chart(fig, use_container_width=True)
+        
+        # Visualization: Box plots
+        st.markdown("### 10.2) Distribution Comparison (Box Plots)")
+        fig_box = px.box(
+            analysis_df, 
+            x='Status_Clean', 
+            y='Disruption_Days',
+            color='Status_Clean',
+            title="Distribution of Clinical Disruption Days by Operational Status",
+            labels={'Status_Clean': 'Operational Status', 'Disruption_Days': 'Disruption Days'},
+            color_discrete_map={
+                'active': '#00FF00',
+                'rotation': '#0000FF',
+                'pending': '#FF0000'
+            }
+        )
+        fig_box.update_layout(showlegend=False)
+        st.plotly_chart(fig_box, use_container_width=True)
+        
+        if AUTO_INSIGHTS:
+            # Calculate IQR and outliers for each group
+            outlier_info = []
+            outlier_details = {}
+            for status in ['active', 'rotation', 'pending']:
+                group_data = analysis_df[analysis_df['Status_Clean'] == status]['Disruption_Days']
+                if len(group_data) > 0:
+                    q1, q3 = group_data.quantile(0.25), group_data.quantile(0.75)
+                    iqr = q3 - q1
+                    outliers = group_data[(group_data < q1 - 1.5*iqr) | (group_data > q3 + 1.5*iqr)]
+                    outlier_details[status] = {
+                        'count': len(outliers),
+                        'max': outliers.max() if len(outliers) > 0 else 0,
+                        'median': group_data.median(),
+                        'q1': q1,
+                        'q3': q3
+                    }
+                    if len(outliers) > 0:
+                        outlier_info.append(f"{status.title()} ({len(outliers)} outliers, max={outliers.max():.0f} days)")
             
-            if AUTO_INSIGHTS:
-                significance = "statistically significant" if p_value < 0.05 else "not statistically significant"
-                st.caption(
-                    f"**Auto-insights:** Chi-square test (χ²={chi2:.2f}, df={dof}, p={p_value:.4f}) "
-                    f"shows the relationship between operational status and defect presence is {significance}. "
-                    f"{'Different operational statuses have significantly different defect patterns.' if p_value < 0.05 else 'No significant difference in defect patterns across statuses.'}"
-                )
+            median_vals = analysis_df.groupby('Status_Clean')['Disruption_Days'].median().sort_values(ascending=False)
+            highest_median = median_vals.index[0]
+            highest_median_val = median_vals.iloc[0]
+            lowest_median = median_vals.index[-1]
+            lowest_median_val = median_vals.iloc[-1]
+            
+            # Count zero-disruption cases
+            zero_counts = {status: (analysis_df[analysis_df['Status_Clean'] == status]['Disruption_Days'] == 0).sum() 
+                          for status in ['active', 'rotation', 'pending']}
+            
+            outlier_text = "; ".join(outlier_info) if outlier_info else "No significant outliers detected"
+            
+            st.caption(
+                f"**Auto-insights (Box Plot):** **{highest_median.title()}** has highest median disruption "
+                f"(**{highest_median_val:.1f} days**) while **{lowest_median.title()}** has lowest "
+                f"(**{lowest_median_val:.1f} days**). Box height shows interquartile range (middle 50% of data). "
+                f"{outlier_text}. "
+                f"Zero-disruption locations: Active={zero_counts.get('active', 0)}, "
+                f"Rotation={zero_counts.get('rotation', 0)}, Pending={zero_counts.get('pending', 0)}. "
+                f"Investigate outlier cases for systemic issues or exceptional circumstances."
+            )
+        
+        # Violin plot for distribution shape
+        st.markdown("### 10.3) Distribution Shape (Violin Plots)")
+        fig_violin = px.violin(
+            analysis_df,
+            x='Status_Clean',
+            y='Disruption_Days',
+            color='Status_Clean',
+            box=True,
+            points='all',
+            title="Distribution Shape of Disruption Days by Status",
+            labels={'Status_Clean': 'Operational Status', 'Disruption_Days': 'Disruption Days'},
+            color_discrete_map={
+                'active': '#00FF00',
+                'rotation': '#0000FF',
+                'pending': '#FF0000'
+            }
+        )
+        st.plotly_chart(fig_violin, use_container_width=True)
+        
+        if AUTO_INSIGHTS:
+            # Analyze distribution shapes
+            skew_info = []
+            distribution_summary = {}
+            
+            try:
+                from scipy.stats import skew as calc_skew
                 
-                # Show expected vs observed
-                with st.expander("Expected vs Observed Frequencies"):
+                for status in ['active', 'rotation', 'pending']:
+                    group_data = analysis_df[analysis_df['Status_Clean'] == status]['Disruption_Days']
+                    if len(group_data) > 2:
+                        skewness = calc_skew(group_data)
+                        mean_val = group_data.mean()
+                        median_val = group_data.median()
+                        std_val = group_data.std()
+                        
+                        distribution_summary[status] = {
+                            'skewness': skewness,
+                            'mean': mean_val,
+                            'median': median_val,
+                            'std': std_val,
+                            'n': len(group_data)
+                        }
+                        
+                        if abs(skewness) > 1:
+                            direction = "right-skewed (many low values, few extremely high)" if skewness > 0 else "left-skewed (many high values, few extremely low)"
+                            skew_info.append(f"**{status.title()}** is {direction} (skew={skewness:.2f})")
+                        elif abs(skewness) > 0.5:
+                            direction = "moderately right-skewed" if skewness > 0 else "moderately left-skewed"
+                            skew_info.append(f"**{status.title()}** is {direction} (skew={skewness:.2f})")
+                
+                # Find most concentrated distribution
+                if distribution_summary:
+                    most_concentrated = min(distribution_summary.items(), key=lambda x: x[1]['std'])
+                    most_variable = max(distribution_summary.items(), key=lambda x: x[1]['std'])
+                    
+                    skew_text = ". ".join(skew_info) if skew_info else "All groups show relatively symmetric distributions"
+                    
+                    # Identify modal regions (density peaks)
+                    density_insight = []
+                    for status, stats in distribution_summary.items():
+                        if stats['median'] < 5:
+                            density_insight.append(f"{status.title()} clusters near zero disruption")
+                        elif stats['median'] > 10:
+                            density_insight.append(f"{status.title()} clusters at high disruption levels")
+                    
+                    density_text = "; ".join(density_insight) if density_insight else "All groups show similar density patterns"
+                    
+                    st.caption(
+                        f"**Auto-insights (Violin Plot):** Violin width shows density at each disruption level - "
+                        f"wider = more locations. {skew_text}. "
+                        f"**{most_concentrated[0].title()}** shows most consistent patterns (SD={most_concentrated[1]['std']:.1f}), "
+                        f"while **{most_variable[0].title()}** is most variable (SD={most_variable[1]['std']:.1f}). "
+                        f"{density_text}. "
+                        f"The embedded box plot shows median and quartiles; individual points reveal all data values."
+                    )
+                else:
+                    st.caption(
+                        f"**Auto-insights (Violin Plot):** Violin width shows data density at each disruption level. "
+                        f"Wider sections = more locations with that disruption duration. "
+                        f"Individual points reveal actual data distribution and clustering patterns."
+                    )
+            except ImportError:
+                skew_text = "Distribution analysis requires scipy"
+                st.caption(
+                    f"**Auto-insights (Violin Plot):** Violin width shows data density at each disruption level. "
+                    f"Wider sections = more locations with that disruption duration. {skew_text}. "
+                    f"Individual points reveal actual data distribution and clustering patterns."
+                )
+        
+        # Statistical Tests
+        st.markdown("### 10.4) Statistical Hypothesis Testing")
+        
+        # Prepare groups for testing
+        active_data = analysis_df[analysis_df['Status_Clean'] == 'active']['Disruption_Days']
+        rotation_data = analysis_df[analysis_df['Status_Clean'] == 'rotation']['Disruption_Days']
+        pending_data = analysis_df[analysis_df['Status_Clean'] == 'pending']['Disruption_Days']
+        
+        groups = [g for g in [active_data, rotation_data, pending_data] if len(g) > 0]
+        group_names = []
+        if len(active_data) > 0: group_names.append('Active')
+        if len(rotation_data) > 0: group_names.append('Rotation')
+        if len(pending_data) > 0: group_names.append('Pending')
+        
+        if len(groups) >= 2:
+            try:
+                from scipy import stats
+                
+                # 1. Kruskal-Wallis H-test (non-parametric alternative to ANOVA)
+                st.markdown("#### A) Kruskal-Wallis H-Test (Non-Parametric)")
+                st.caption("Tests if there are statistically significant differences between the groups.")
+                
+                if len(groups) >= 2:
+                    h_stat, p_value_kw = stats.kruskal(*groups)
+                    
                     col1, col2 = st.columns(2)
                     with col1:
-                        st.write("**Observed:**")
-                        st.dataframe(contingency)
+                        st.metric("H-statistic", f"{h_stat:.4f}")
                     with col2:
-                        st.write("**Expected:**")
-                        st.dataframe(pd.DataFrame(expected, 
-                                                   index=contingency.index, 
-                                                   columns=contingency.columns).round(2))
-    except Exception as e:
-        st.warning(f"Could not perform chi-square test: {e}")
+                        st.metric("p-value", f"{p_value_kw:.4f}")
+                    
+                    if p_value_kw < 0.05:
+                        st.success(f"✓ **Significant difference detected** (p < 0.05)")
+                        st.caption("The operational status groups have significantly different disruption days.")
+                    else:
+                        st.info(f"No significant difference detected (p ≥ 0.05)")
+                        st.caption("The disruption days do not significantly differ across operational status groups.")
+                    
+                    if AUTO_INSIGHTS:
+                        interpretation = (
+                            f"The Kruskal-Wallis test with H={h_stat:.2f} and p={p_value_kw:.4f} "
+                            f"{'**confirms**' if p_value_kw < 0.05 else '**suggests**'} that operational status "
+                            f"{'**does**' if p_value_kw < 0.05 else '**does not**'} significantly affect disruption duration. "
+                        )
+                        if p_value_kw < 0.05:
+                            interpretation += "This indicates that management should prioritize certain status types for intervention."
+                        else:
+                            interpretation += "Disruption may be influenced more by other factors (location, department, defect type)."
+                        st.caption(f"**Auto-insights (Kruskal-Wallis):** {interpretation}")
+                
+                # 2. Pairwise Mann-Whitney U tests (post-hoc)
+                if len(groups) >= 2 and p_value_kw < 0.05:
+                    st.markdown("#### B) Pairwise Mann-Whitney U Tests (Post-Hoc)")
+                    st.caption("Identifies which specific pairs of groups differ significantly.")
+                    
+                    pairs = []
+                    if len(active_data) > 0 and len(rotation_data) > 0:
+                        u_stat, p_val = stats.mannwhitneyu(active_data, rotation_data, alternative='two-sided')
+                        pairs.append(('Active vs Rotation', u_stat, p_val))
+                    
+                    if len(active_data) > 0 and len(pending_data) > 0:
+                        u_stat, p_val = stats.mannwhitneyu(active_data, pending_data, alternative='two-sided')
+                        pairs.append(('Active vs Pending', u_stat, p_val))
+                    
+                    if len(rotation_data) > 0 and len(pending_data) > 0:
+                        u_stat, p_val = stats.mannwhitneyu(rotation_data, pending_data, alternative='two-sided')
+                        pairs.append(('Rotation vs Pending', u_stat, p_val))
+                    
+                    # Bonferroni correction
+                    alpha_corrected = 0.05 / len(pairs) if len(pairs) > 0 else 0.05
+                    
+                    pairwise_results = pd.DataFrame(pairs, columns=['Comparison', 'U-statistic', 'p-value'])
+                    pairwise_results['Significant'] = pairwise_results['p-value'] < alpha_corrected
+                    pairwise_results['Corrected α'] = alpha_corrected
+                    
+                    st.dataframe(pairwise_results, use_container_width=True)
+                    st.caption(f"Using Bonferroni correction: α = 0.05 / {len(pairs)} = {alpha_corrected:.4f}")
+                    
+                    if AUTO_INSIGHTS:
+                        sig_pairs = pairwise_results[pairwise_results['Significant']]
+                        if len(sig_pairs) > 0:
+                            sig_comparisons = ", ".join(sig_pairs['Comparison'].tolist())
+                            st.caption(
+                                f"**Auto-insights (Pairwise):** Significant differences found in: **{sig_comparisons}**. "
+                                f"These pairs show statistically different disruption patterns and warrant separate "
+                                f"management strategies. Non-significant pairs may be managed similarly."
+                            )
+                        else:
+                            st.caption(
+                                f"**Auto-insights (Pairwise):** Despite overall significance, no individual pairs "
+                                f"meet the corrected threshold (α={alpha_corrected:.4f}). This suggests differences "
+                                f"are spread across all groups rather than concentrated between specific pairs."
+                            )
+                
+                # 3. Effect size (Eta-squared for Kruskal-Wallis)
+                st.markdown("#### C) Effect Size")
+                st.caption("Measures the magnitude of the difference (0.01=small, 0.06=medium, 0.14=large)")
+                
+                n_total = sum(len(g) for g in groups)
+                eta_squared = (h_stat - len(groups) + 1) / (n_total - len(groups))
+                
+                st.metric("Eta-squared (η²)", f"{eta_squared:.4f}")
+                
+                if eta_squared < 0.01:
+                    effect_interpretation = "Negligible effect"
+                elif eta_squared < 0.06:
+                    effect_interpretation = "Small effect"
+                elif eta_squared < 0.14:
+                    effect_interpretation = "Medium effect"
+                else:
+                    effect_interpretation = "Large effect"
+                
+                st.info(f"**Interpretation:** {effect_interpretation}")
+                
+                if AUTO_INSIGHTS:
+                    practical_sig = (
+                        f"**Auto-insights (Effect Size):** η²={eta_squared:.4f} indicates **{effect_interpretation.lower()}**. "
+                    )
+                    if eta_squared < 0.06:
+                        practical_sig += (
+                            "While statistically significant, the practical impact is small. "
+                            "Other factors (location, defect type) may be more important for reducing disruption."
+                        )
+                    elif eta_squared < 0.14:
+                        practical_sig += (
+                            "Operational status has a moderate impact on disruption. "
+                            "Consider this factor in planning and resource allocation."
+                        )
+                    else:
+                        practical_sig += (
+                            "Operational status is a MAJOR driver of disruption duration. "
+                            "Management interventions targeting status transitions could significantly reduce disruption."
+                        )
+                    st.caption(practical_sig)
+                
+                # 4. Normality tests (for reference)
+                st.markdown("#### D) Normality Tests (Shapiro-Wilk)")
+                st.caption("Tests if data follows a normal distribution (informational only)")
+                
+                normality_results = []
+                for group_data, name in zip([active_data, rotation_data, pending_data], 
+                                           ['Active', 'Rotation', 'Pending']):
+                    if len(group_data) >= 3:  # Shapiro-Wilk requires at least 3 samples
+                        stat, p_val = stats.shapiro(group_data)
+                        normality_results.append({
+                            'Group': name,
+                            'n': len(group_data),
+                            'Statistic': f"{stat:.4f}",
+                            'p-value': f"{p_val:.4f}",
+                            'Normal?': 'Yes' if p_val > 0.05 else 'No'
+                        })
+                
+                if normality_results:
+                    st.dataframe(pd.DataFrame(normality_results), use_container_width=True)
+                    st.caption("If p > 0.05, data is approximately normally distributed.")
+                    
+                    if AUTO_INSIGHTS:
+                        non_normal = [r['Group'] for r in normality_results if r['Normal?'] == 'No']
+                        if len(non_normal) > 0:
+                            st.caption(
+                                f"**Auto-insights (Normality):** Groups **{', '.join(non_normal)}** show "
+                                f"non-normal distribution (skewed or heavy-tailed). This confirms that "
+                                f"non-parametric tests (Kruskal-Wallis, Mann-Whitney) are more appropriate "
+                                f"than traditional ANOVA/t-tests for this dataset."
+                            )
+                        else:
+                            st.caption(
+                                f"**Auto-insights (Normality):** All groups approximate normal distribution. "
+                                f"Both parametric (ANOVA) and non-parametric tests would be valid, though "
+                                f"non-parametric methods are more robust to outliers common in disruption data."
+                            )
+                
+            except ImportError:
+                st.warning("Install scipy for statistical tests: `pip install scipy`")
+            except Exception as e:
+                st.error(f"Error performing statistical tests: {e}")
+        else:
+            st.info("Need at least 2 groups with data to perform statistical comparison.")
+        
+        # Auto-insights summary
+        if AUTO_INSIGHTS:
+            total_locations = len(analysis_df)
+            mean_active = active_data.mean() if len(active_data) > 0 else 0
+            mean_rotation = rotation_data.mean() if len(rotation_data) > 0 else 0
+            mean_pending = pending_data.mean() if len(pending_data) > 0 else 0
+            
+            st.markdown("### 14.5) Key Findings Summary")
+            st.caption(
+                f"**Auto-insights:** Analyzed **{total_locations}** locations. "
+                f"Mean disruption days: Active={mean_active:.1f}, Rotation={mean_rotation:.1f}, Pending={mean_pending:.1f}. "
+                f"{'Statistical tests show significant differences between groups.' if 'p_value_kw' in locals() and p_value_kw < 0.05 else 'No significant statistical differences detected between groups.'}"
+            )
+    else:
+        st.info("No data found for Active, Rotation, or Pending status groups.")
 else:
-    st.info("Need OPERATIONAL STATUS and TOTAL_DEFECT columns.")
+    st.info("Need OPERATIONAL STATUS and CLINICAL DISRUPTION columns for statistical analysis.")
+
+# --------------------------
+# 11) STATISTICAL ANALYSIS: Active vs (Rotation + Pending)
+# --------------------------
+st.markdown("## 11) Statistical Analysis: Active vs (Rotation + Pending)")
+
+if OPSTAT and TOTAL_DEFECT:
+    # Prepare comparison groups
+    dff_stat = dff.copy()
+    dff_stat['_status_clean'] = dff_stat[OPSTAT].astype(str).str.strip().str.lower()
+    dff_stat['_total_def'] = safe_num(dff_stat[TOTAL_DEFECT]).fillna(0)
+    
+    # Create binary grouping
+    dff_stat['_group'] = dff_stat['_status_clean'].apply(
+        lambda x: 'Active' if x == 'active' else ('Rotation+Pending' if x in ['rotation', 'pending'] else 'Other')
+    )
+    
+    # Filter to relevant groups
+    analysis_df = dff_stat[dff_stat['_group'].isin(['Active', 'Rotation+Pending'])].copy()
+    
+    if len(analysis_df) > 0:
+        active_defects = analysis_df[analysis_df['_group'] == 'Active']['_total_def']
+        rot_pend_defects = analysis_df[analysis_df['_group'] == 'Rotation+Pending']['_total_def']
+        
+        # Summary statistics
+        col1, col2, col3 = st.columns(3)
+        
+        with col1:
+            st.metric("Active Locations", len(active_defects))
+            st.metric("Mean Defects (Active)", f"{active_defects.mean():.2f}")
+            st.metric("Median Defects (Active)", f"{active_defects.median():.2f}")
+        
+        with col2:
+            st.metric("Rotation+Pending Locations", len(rot_pend_defects))
+            st.metric("Mean Defects (Rot+Pend)", f"{rot_pend_defects.mean():.2f}")
+            st.metric("Median Defects (Rot+Pend)", f"{rot_pend_defects.median():.2f}")
+        
+        with col3:
+            diff_mean = active_defects.mean() - rot_pend_defects.mean()
+            diff_median = active_defects.median() - rot_pend_defects.median()
+            st.metric("Difference in Mean", f"{diff_mean:.2f}", delta=None)
+            st.metric("Difference in Median", f"{diff_median:.2f}", delta=None)
+        
+        # Statistical tests
+        st.markdown("### Statistical Tests")
+        
+        try:
+            from scipy import stats
+            
+            # 1. Mann-Whitney U Test (non-parametric, good for non-normal distributions)
+            u_stat, p_mann = stats.mannwhitneyu(active_defects, rot_pend_defects, alternative='two-sided')
+            
+            # 2. Independent t-test (parametric)
+            t_stat, p_ttest = stats.ttest_ind(active_defects, rot_pend_defects, equal_var=False)
+            
+            # 3. Levene's test for equality of variances
+            lev_stat, p_levene = stats.levene(active_defects, rot_pend_defects)
+            
+            # 4. Effect size (Cohen's d)
+            pooled_std = np.sqrt(((len(active_defects)-1)*active_defects.std()**2 + 
+                                  (len(rot_pend_defects)-1)*rot_pend_defects.std()**2) / 
+                                 (len(active_defects) + len(rot_pend_defects) - 2))
+            cohens_d = (active_defects.mean() - rot_pend_defects.mean()) / pooled_std if pooled_std > 0 else 0
+            
+            # Display results
+            test_results = pd.DataFrame({
+                'Test': [
+                    'Mann-Whitney U Test',
+                    'Independent t-test',
+                    "Levene's Test (variance)",
+                    "Cohen's d (effect size)"
+                ],
+                'Statistic': [
+                    f"U = {u_stat:.2f}",
+                    f"t = {t_stat:.2f}",
+                    f"W = {lev_stat:.2f}",
+                    f"d = {cohens_d:.3f}"
+                ],
+                'p-value': [
+                    f"{p_mann:.4f}",
+                    f"{p_ttest:.4f}",
+                    f"{p_levene:.4f}",
+                    "N/A"
+                ],
+                'Interpretation': [
+                    "Significant difference" if p_mann < 0.05 else "No significant difference",
+                    "Significant difference" if p_ttest < 0.05 else "No significant difference",
+                    "Unequal variances" if p_levene < 0.05 else "Equal variances",
+                    "Large effect" if abs(cohens_d) > 0.8 else ("Medium effect" if abs(cohens_d) > 0.5 else "Small effect")
+                ]
+            })
+            
+            st.dataframe(test_results, use_container_width=True)
+            
+            # Interpretation
+            st.markdown("### Interpretation")
+            
+            if p_mann < 0.05:
+                direction = "higher" if active_defects.median() > rot_pend_defects.median() else "lower"
+                st.success(
+                    f"✅ **Significant difference found** (Mann-Whitney U test, p={p_mann:.4f}). "
+                    f"Active locations have **{direction}** defect counts than Rotation+Pending locations."
+                )
+            else:
+                st.info(
+                    f"ℹ️ **No significant difference** detected (Mann-Whitney U test, p={p_mann:.4f}). "
+                    "The defect counts between Active and Rotation+Pending groups are statistically similar."
+                )
+            
+            if abs(cohens_d) > 0.5:
+                st.info(f"Effect size (Cohen's d = {cohens_d:.3f}) indicates a meaningful practical difference.")
+            
+        except Exception as e:
+            st.warning(f"Could not perform statistical tests: {e}")
+        
+        # Box plot comparison
+        st.markdown("### Distribution Comparison")
+        
+        fig_box = px.box(
+            analysis_df,
+            x='_group',
+            y='_total_def',
+            title="Defect Distribution: Active vs Rotation+Pending",
+            labels={'_group': 'Group', '_total_def': 'Total Defects'},
+            color='_group',
+            color_discrete_map={'Active': '#00FF00', 'Rotation+Pending': '#FF6B6B'}
+        )
+        st.plotly_chart(fig_box, use_container_width=True)
+        
+        # Auto-insights for Box Plot
+        if AUTO_INSIGHTS:
+            # Calculate IQR and outliers for both groups
+            q1_active = active_defects.quantile(0.25)
+            q3_active = active_defects.quantile(0.75)
+            iqr_active = q3_active - q1_active
+            outliers_active = ((active_defects < (q1_active - 1.5 * iqr_active)) | 
+                             (active_defects > (q3_active + 1.5 * iqr_active))).sum()
+            
+            q1_rot = rot_pend_defects.quantile(0.25)
+            q3_rot = rot_pend_defects.quantile(0.75)
+            iqr_rot = q3_rot - q1_rot
+            outliers_rot = ((rot_pend_defects < (q1_rot - 1.5 * iqr_rot)) | 
+                          (rot_pend_defects > (q3_rot + 1.5 * iqr_rot))).sum()
+            
+            spread_active = active_defects.std()
+            spread_rot = rot_pend_defects.std()
+            
+            st.caption(
+                f"**Box Plot Insights:** Active group median = **{active_defects.median():.1f}** "
+                f"(IQR: {q1_active:.1f} to {q3_active:.1f}, {outliers_active} outliers). "
+                f"Rotation+Pending median = **{rot_pend_defects.median():.1f}** "
+                f"(IQR: {q1_rot:.1f} to {q3_rot:.1f}, {outliers_rot} outliers). "
+                f"Active group has {'wider' if spread_active > spread_rot else 'narrower'} spread "
+                f"(SD: {spread_active:.1f} vs {spread_rot:.1f})."
+            )
+        
+        # Violin plot for detailed distribution
+        fig_violin = px.violin(
+            analysis_df,
+            x='_group',
+            y='_total_def',
+            title="Defect Distribution (Violin Plot)",
+            labels={'_group': 'Group', '_total_def': 'Total Defects'},
+            color='_group',
+            color_discrete_map={'Active': '#00FF00', 'Rotation+Pending': '#FF6B6B'},
+            box=True,
+            points='all'
+        )
+        st.plotly_chart(fig_violin, use_container_width=True)
+        
+        # Auto-insights for Violin Plot
+        if AUTO_INSIGHTS:
+            # Analyze distribution shape
+            from scipy.stats import skew, kurtosis
+            
+            skew_active = skew(active_defects)
+            skew_rot = skew(rot_pend_defects)
+            kurt_active = kurtosis(active_defects)
+            kurt_rot = kurtosis(rot_pend_defects)
+            
+            # Determine skewness interpretation
+            def skew_text(s):
+                if s > 1:
+                    return "highly right-skewed (long tail toward high values)"
+                elif s > 0.5:
+                    return "moderately right-skewed"
+                elif s < -1:
+                    return "highly left-skewed (long tail toward low values)"
+                elif s < -0.5:
+                    return "moderately left-skewed"
+                else:
+                    return "roughly symmetric"
+            
+            # Determine concentration
+            def kurt_text(k):
+                if k > 3:
+                    return "heavy-tailed (many extreme values)"
+                elif k > 0:
+                    return "moderately peaked"
+                elif k < -1:
+                    return "flat distribution (uniform spread)"
+                else:
+                    return "normal-like distribution"
+            
+            # Count high vs low defect locations
+            median_overall = analysis_df['_total_def'].median()
+            high_active = (active_defects > median_overall).sum()
+            high_rot = (rot_pend_defects > median_overall).sum()
+            
+            pct_high_active = (high_active / len(active_defects) * 100) if len(active_defects) > 0 else 0
+            pct_high_rot = (high_rot / len(rot_pend_defects) * 100) if len(rot_pend_defects) > 0 else 0
+            
+            st.caption(
+                f"**Violin Plot Insights:** Active group distribution is **{skew_text(skew_active)}** "
+                f"(skewness = {skew_active:.2f}) and **{kurt_text(kurt_active)}** (kurtosis = {kurt_active:.2f}). "
+                f"Rotation+Pending is **{skew_text(skew_rot)}** (skewness = {skew_rot:.2f}) and "
+                f"**{kurt_text(kurt_rot)}** (kurtosis = {kurt_rot:.2f}). "
+                f"**{pct_high_active:.1f}%** of Active locations have above-median defects vs "
+                f"**{pct_high_rot:.1f}%** of Rotation+Pending locations. "
+                f"Violin width shows density: Active group concentrates around "
+                f"**{active_defects.mode().iloc[0] if len(active_defects.mode()) > 0 else active_defects.median():.0f}** defects, "
+                f"while Rotation+Pending concentrates around "
+                f"**{rot_pend_defects.mode().iloc[0] if len(rot_pend_defects.mode()) > 0 else rot_pend_defects.median():.0f}** defects."
+            )
+        
+    else:
+        st.info("No data available for Active or Rotation+Pending groups.")
+else:
+    st.info("Need OPERATIONAL STATUS and TOTAL_DEFECT columns for statistical analysis.")
 
 st.write("---")
 
 # --------------------------
-# Data Master Severity & Disruption by Location
+# 12) Data Master Severity & Disruption by Location
 # --------------------------
-st.markdown("## 13) Data Master Severity & Disruption by Location")
+st.markdown("## 12) Data Master Severity & Disruption by Location")
 sev_cols, sev_labels = [], []
 if colmap.get("major_defect"):
     sev_cols.append(colmap["major_defect"]); sev_labels.append("Major Defect")
@@ -1437,9 +2098,9 @@ if LOC and sev_cols:
 else:
     st.info("Need LOCATION and severity columns.")
 # --------------------------
-# Data Master (All Rows & Columns)
+# 13) Data Master (All Rows & Columns)
 # --------------------------
-st.markdown("## 14) Data Master (All Rows & Columns)")
+st.markdown("## 13) Data Master (All Rows & Columns)")
 q = st.text_input("Quick search (matches anywhere in row; case-insensitive):", value="")
 dm = dff.copy()
 if q.strip():
