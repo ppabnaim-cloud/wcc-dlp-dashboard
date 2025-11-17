@@ -1409,9 +1409,193 @@ else:
 st.write("---")
 
 # --------------------------
-# 10) Statistical Analysis: Operational Status vs Clinical Disruption
+# 10) Chi-Square Test: Defect Category Independence by Department
 # --------------------------
-st.markdown("## 10) Statistical Analysis: Operational Status vs Clinical Disruption")
+
+st.markdown("## 10) Chi-Square Test: Defect Category Independence by Department")
+if DEPT and found_cats:
+    # Prepare data
+    cat_dept = []
+    for cat_name, col_name in found_cats.items():
+        if col_name in dff.columns:
+            counts = dff.groupby(DEPT)[col_name].apply(lambda x: safe_num(x).sum())
+            for dept, count in counts.items():
+                cat_dept.extend([dept] * int(count))  # Replicate rows
+    
+    # Create contingency table
+    contingency = pd.crosstab(
+        index=pd.Series(cat_dept, name='Department'),
+        columns=pd.Series([cat for cat in found_cats.keys() for _ in range(int(dff[found_cats[cat]].sum()))], name='Category')
+    )
+    
+    # Perform chi-square test
+    from scipy.stats import chi2_contingency
+    chi2, p_value, dof, expected = chi2_contingency(contingency)
+    
+    # Calculate Cramér's V
+    n = contingency.sum().sum()
+    cramers_v = np.sqrt(chi2 / (n * (min(contingency.shape) - 1)))
+    
+    # Display results
+    col1, col2, col3 = st.columns(3)
+    with col1:
+        st.metric("Chi-Square Statistic", f"{chi2:.2f}")
+    with col2:
+        st.metric("p-value", f"{p_value:.4f}")
+    with col3:
+        st.metric("Cramér's V (Effect Size)", f"{cramers_v:.3f}")
+    
+    # Generate Auto Insights
+    if p_value < 0.05:
+        st.success(f"✅ **SIGNIFICANT ASSOCIATION FOUND** (p < 0.05)")
+        
+        # Effect size interpretation
+        if cramers_v < 0.1:
+            effect = "negligible"
+        elif cramers_v < 0.3:
+            effect = "small"
+        elif cramers_v < 0.5:
+            effect = "medium"
+        else:
+            effect = "large"
+        
+        st.caption(
+            f"Defect categories are NOT independent of departments. "
+            f"Certain departments show distinct defect patterns. "
+            f"Effect size Cramér's V = {cramers_v:.3f} ({effect} effect)."
+        )
+        
+        # AUTO INSIGHTS SECTION
+        st.markdown("### 🔍 Auto-Generated Insights")
+        
+        # Calculate standardized residuals for insight generation
+        observed = contingency.values
+        standardized_residuals = (observed - expected) / np.sqrt(expected)
+        
+        # Find significant patterns (|residual| > 2 indicates significance)
+        insights = []
+        
+        for i, dept in enumerate(contingency.index):
+            for j, cat in enumerate(contingency.columns):
+                residual = standardized_residuals[i, j]
+                obs_count = observed[i, j]
+                exp_count = expected[i, j]
+                
+                if abs(residual) > 2:  # Significant deviation
+                    if residual > 2:
+                        direction = "**significantly higher**"
+                        emoji = "⬆️"
+                        color = "red"
+                    else:
+                        direction = "**significantly lower**"
+                        emoji = "⬇️"
+                        color = "blue"
+                    
+                    pct_diff = ((obs_count - exp_count) / exp_count) * 100
+                    insights.append({
+                        'dept': dept,
+                        'cat': cat,
+                        'direction': direction,
+                        'emoji': emoji,
+                        'obs': obs_count,
+                        'exp': exp_count,
+                        'pct': pct_diff,
+                        'residual': abs(residual),
+                        'color': color
+                    })
+        
+        # Sort by residual strength
+        insights.sort(key=lambda x: x['residual'], reverse=True)
+        
+        if insights:
+            st.markdown("**Key Patterns Detected:**")
+            
+            for idx, insight in enumerate(insights[:5], 1):  # Show top 5 insights
+                st.markdown(
+                    f"{insight['emoji']} **{insight['dept']}** has {insight['direction']} "
+                    f"defects in **{insight['cat']}**: "
+                    f"{int(insight['obs'])} observed vs {insight['exp']:.1f} expected "
+                    f"({insight['pct']:+.1f}%)"
+                )
+            
+            # Summary recommendation
+            st.markdown("---")
+            st.markdown("**💡 Recommendation:**")
+            
+            # Find department with most deviations
+            dept_deviation_counts = {}
+            for insight in insights:
+                dept = insight['dept']
+                dept_deviation_counts[dept] = dept_deviation_counts.get(dept, 0) + 1
+            
+            if dept_deviation_counts:
+                focus_dept = max(dept_deviation_counts, key=dept_deviation_counts.get)
+                st.info(
+                    f"🎯 Focus quality improvement efforts on **{focus_dept}** which shows "
+                    f"the most distinctive defect patterns ({dept_deviation_counts[focus_dept]} categories deviate from expected). "
+                    f"Investigate root causes specific to this department's processes or conditions."
+                )
+        else:
+            st.info("While statistically significant, all department-category combinations are within normal variation ranges (no extreme outliers).")
+    
+    else:
+        st.info("ℹ️ **No significant association detected** (p ≥ 0.05)")
+        st.caption(
+            "Defect categories appear to be distributed independently across departments. "
+            "This suggests defects are not strongly influenced by department-specific factors."
+        )
+        
+        st.markdown("### 🔍 Auto-Generated Insights")
+        st.markdown(
+            "**Interpretation:** Defect patterns are relatively uniform across all departments. "
+            "This indicates:\n"
+            "- Quality issues are likely systemic rather than department-specific\n"
+            "- Common root causes may affect all departments equally\n"
+            "- Department-level interventions may not be the most effective approach"
+        )
+    
+    # Heatmap of observed vs expected frequencies
+    fig = px.imshow(
+        contingency,
+        labels=dict(x="Defect Category", y="Department", color="Count"),
+        title="Observed Defect Distribution (Heatmap)",
+        text_auto=True,
+        color_continuous_scale="YlOrRd"
+    )
+    st.plotly_chart(fig, use_container_width=True)
+    
+    # Optional: Show standardized residuals heatmap for deeper analysis
+    with st.expander("📊 Advanced: Standardized Residuals (Click to Expand)"):
+        st.caption("Values > 2 or < -2 indicate significant deviations from expected frequencies")
+        
+        residuals_df = pd.DataFrame(
+            standardized_residuals,
+            index=contingency.index,
+            columns=contingency.columns
+        )
+        
+        fig_residuals = px.imshow(
+            residuals_df,
+            labels=dict(x="Defect Category", y="Department", color="Std. Residual"),
+            title="Standardized Residuals (Deviation from Expected)",
+            text_auto='.2f',
+            color_continuous_scale="RdBu_r",
+            color_continuous_midpoint=0,
+            zmin=-4,
+            zmax=4
+        )
+        st.plotly_chart(fig_residuals, use_container_width=True)
+        
+        st.caption(
+            "🔴 Red (positive): More defects than expected | "
+            "🔵 Blue (negative): Fewer defects than expected | "
+            "⚪ White (near 0): As expected"
+        )
+
+# --------------------------
+# 11) Statistical Analysis: Operational Status vs Clinical Disruption
+# --------------------------
+st.markdown("## 11) Statistical Analysis: Operational Status vs Clinical Disruption")
 
 if OPSTAT and DISRUPT_COL and (OPSTAT in dff.columns) and (DISRUPT_COL in dff.columns):
     st.markdown("""
@@ -1436,7 +1620,7 @@ if OPSTAT and DISRUPT_COL and (OPSTAT in dff.columns) and (DISRUPT_COL in dff.co
     
     if len(analysis_df) > 0:
         # Summary statistics by group
-        st.markdown("### 10a) Descriptive Statistics")
+        st.markdown("### 11.1) Descriptive Statistics")
         
         summary = analysis_df.groupby('Status_Clean')['Disruption_Days'].agg([
             ('Count', 'count'),
@@ -1467,7 +1651,7 @@ if OPSTAT and DISRUPT_COL and (OPSTAT in dff.columns) and (DISRUPT_COL in dff.co
             )
         
         # Visualization: Box plots
-        st.markdown("### 10b) Distribution Comparison (Box Plots)")
+        st.markdown("### 11.2) Distribution Comparison (Box Plots)")
         fig_box = px.box(
             analysis_df, 
             x='Status_Clean', 
@@ -1527,7 +1711,7 @@ if OPSTAT and DISRUPT_COL and (OPSTAT in dff.columns) and (DISRUPT_COL in dff.co
             )
         
         # Violin plot for distribution shape
-        st.markdown("### 10c) Distribution Shape (Violin Plots)")
+        st.markdown("### 11.3) Distribution Shape (Violin Plots)")
         fig_violin = px.violin(
             analysis_df,
             x='Status_Clean',
@@ -1616,7 +1800,7 @@ if OPSTAT and DISRUPT_COL and (OPSTAT in dff.columns) and (DISRUPT_COL in dff.co
                 )
         
         # Statistical Tests
-        st.markdown("### 10d) Statistical Hypothesis Testing")
+        st.markdown("### 11.4) Statistical Hypothesis Testing")
         
         # Prepare groups for testing
         active_data = analysis_df[analysis_df['Status_Clean'] == 'active']['Disruption_Days']
@@ -1801,7 +1985,7 @@ if OPSTAT and DISRUPT_COL and (OPSTAT in dff.columns) and (DISRUPT_COL in dff.co
             mean_rotation = rotation_data.mean() if len(rotation_data) > 0 else 0
             mean_pending = pending_data.mean() if len(pending_data) > 0 else 0
             
-            st.markdown("### 10e) Key Findings Summary")
+            st.markdown("### 11.5) Key Findings Summary")
             st.caption(
                 f"**Auto-insights:** Analyzed **{total_locations}** locations. "
                 f"Mean disruption days: Active={mean_active:.1f}, Rotation={mean_rotation:.1f}, Pending={mean_pending:.1f}. "
@@ -1813,9 +1997,9 @@ else:
     st.info("Need OPERATIONAL STATUS and CLINICAL DISRUPTION columns for statistical analysis.")
 
 # --------------------------
-# 11) STATISTICAL ANALYSIS: Active vs (Rotation + Pending)
+# 12) STATISTICAL ANALYSIS: Active vs (Rotation + Pending)
 # --------------------------
-st.markdown("## 11) Statistical Analysis: Active vs (Rotation + Pending)")
+st.markdown("## 12) Statistical Analysis: Active vs (Rotation + Pending)")
 
 if OPSTAT and TOTAL_DEFECT:
     # Prepare comparison groups
@@ -2113,7 +2297,7 @@ st.download_button(
     file_name="wcc_dlp_filtered.csv",
     mime="text/csv",
 )
-
+    
 # --------------------------
 # FOOTER
 # --------------------------
