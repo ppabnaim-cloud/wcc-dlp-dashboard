@@ -1231,6 +1231,20 @@ else:
 # --------------------------
 st.markdown("## 9) BCMS Risk Scoring (Impact × Likelihood) & BIA")
 
+# --- METHODOLOGY EXPLANATION (New) ---
+with st.expander("ℹ️  Click to see Risk Scoring Methodology", expanded=True):
+    st.markdown("""
+    **Risk Score = Impact × Likelihood** (Score ranges from 1 to 25)
+    
+    | Band | Impact (Severity) <br> *Measured by Disruption Days* | Likelihood (Frequency) <br> *Measured by Defect Count* |
+    | :---: | :--- | :--- |
+    | **1** | **Minimal** (0 days) | **Rare** (0 - 1 defects) |
+    | **2** | **Low** (1 - 2 days) | **Occasional** (2 - 5 defects) |
+    | **3** | **Moderate** (3 - 6 days) | **Frequent** (6 - 15 defects) |
+    | **4** | **High** (7 - 13 days) | **Very Frequent** (16 - 40 defects) |
+    | **5** | **Critical** (14+ days) | **Constant** (> 40 defects) |
+    """)
+
 IMPACT_DAYS_COL = colmap.get("clinical_disruption_days")
 SVC_COL         = colmap.get("svc_name")
 OWNER_COL       = colmap.get("risk_owner")
@@ -1262,7 +1276,7 @@ elif DEPT and DEPT in dff.columns:
 else:
     dff["_owner"] = ""
 
-# Disruption days
+# Disruption days Extraction
 if IMPACT_DAYS_COL and IMPACT_DAYS_COL in dff.columns:
     dff["_disrupt_days"] = pd.to_numeric(
         dff[IMPACT_DAYS_COL].astype(str)
@@ -1273,25 +1287,21 @@ if IMPACT_DAYS_COL and IMPACT_DAYS_COL in dff.columns:
 else:
     dff["_disrupt_days"] = 0
 
-def band_days(series: pd.Series) -> pd.Series:
-    s = pd.to_numeric(
-        series.astype(str)
-              .str.replace(",", "", regex=False)
-              .str.extract(r"(-?\d+\.?\d*)", expand=False),
-        errors="coerce"
-    ).fillna(0)
-    try:
-        return pd.qcut(s, 5, labels=[1, 2, 3, 4, 5], duplicates="drop").astype("Int64").fillna(1).astype(int)
-    except Exception:
-        return pd.cut(
-            s,
-            bins=[-0.1, 0, 1, 3, 7, float("inf")],
-            labels=[1, 2, 3, 4, 5],
-            include_lowest=True
-        ).astype(int)
+# --- UPDATED: Impact Banding Logic (Fixed Thresholds) ---
+# 0 days = Band 1
+# 1-2 days = Band 2
+# 3-6 days = Band 3
+# 7-13 days = Band 4
+# 14+ days = Band 5
+def band_days_fixed(series: pd.Series) -> pd.Series:
+    # Use right=False: [0, 1) -> 0; [1, 3) -> 1,2; [3, 7) -> 3..6; [7, 14) -> 7..13; [14, inf) -> 14+
+    bins = [-float("inf"), 1, 3, 7, 14, float("inf")]
+    labels = [1, 2, 3, 4, 5]
+    return pd.cut(series, bins=bins, labels=labels, right=False).astype(int)
 
-impact_days_band = band_days(dff["_disrupt_days"])
+impact_days_band = band_days_fixed(dff["_disrupt_days"])
 
+# Financial impact blend (if enabled)
 impact_fin_band = (
     band_finance(dff[FIN], FIN_METHOD, T1, T2, T3, T4)
     if (USE_FINANCE_IN_IMPACT and FIN and FIN in dff.columns)
@@ -1300,18 +1310,28 @@ impact_fin_band = (
 
 IMPACT_BAND = np.maximum(impact_days_band, impact_fin_band) if USE_FINANCE_IN_IMPACT else impact_days_band
 
-# Likelihood band (frequency proxy)
+# --- UPDATED: Likelihood Banding Logic (Fixed Thresholds) ---
+# 0-1 defects = Band 1
+# 2-5 defects = Band 2
+# 6-15 defects = Band 3
+# 16-40 defects = Band 4
+# 40+ (>40) defects = Band 5
+
+# 1. Get Defect Counts
 if TOTAL_DEFECT and TOTAL_DEFECT in dff.columns:
     tmp_freq = safe_num(dff[TOTAL_DEFECT]).fillna(0)
 else:
     melt_cols = [c for c in cat_cols.values() if c and c in dff.columns]
     tmp_freq = dff[melt_cols].apply(safe_num).fillna(0).sum(axis=1) if melt_cols else pd.Series(0, index=dff.index)
 
+# 2. Group Frequency (if mapped by location/dept)
 group_key = [c for c in [LOC, DEPT] if c]
 if group_key:
+    # Group by location/dept to get the total defects for that ENTITY, not just that row
     freq_by_grp = dff.groupby(group_key, dropna=False).apply(
         lambda g: safe_num(g[TOTAL_DEFECT]).fillna(0).sum() if TOTAL_DEFECT in g.columns else 0
     )
+    # Map back to original dataframe size
     freq_map = dff[group_key].merge(
         freq_by_grp.rename("grp_freq"),
         left_on=group_key,
@@ -1322,26 +1342,22 @@ if group_key:
 else:
     freq_series = tmp_freq
 
-def band_freq(series: pd.Series) -> pd.Series:
-    s = pd.to_numeric(series, errors="coerce").fillna(0)
-    try:
-        return pd.qcut(s, 5, labels=[1, 2, 3, 4, 5], duplicates="drop").astype("Int64").fillna(1).astype(int)
-    except Exception:
-        return pd.cut(
-            s,
-            bins=[-0.1, 1, 5, 15, 40, float("inf")],
-            labels=[1, 2, 3, 4, 5],
-            include_lowest=True
-        ).astype(int)
+# 3. Apply Fixed Bands
+def band_freq_fixed(series: pd.Series) -> pd.Series:
+    # Use right=True: (-0.1, 1] -> 0,1; (1, 5] -> 2..5; (5, 15] -> 6..15; (15, 40] -> 16..40; (40, inf) -> >40
+    bins = [-0.1, 1, 5, 15, 40, float("inf")]
+    labels = [1, 2, 3, 4, 5]
+    return pd.cut(series, bins=bins, labels=labels, right=True).astype(int)
 
-LIKELIHOOD_BAND = band_freq(freq_series)
+LIKELIHOOD_BAND = band_freq_fixed(freq_series)
 
+# --- RISK CALCULATION ---
 RISK_SCORE = (IMPACT_BAND * LIKELIHOOD_BAND).astype(int)
 dff["_impact_band"] = IMPACT_BAND
 dff["_likelihood_band"] = LIKELIHOOD_BAND
 dff["_risk_score"] = RISK_SCORE
 
-# BIA flag
+# BIA flag logic
 if BIA_FLAG_COL and BIA_FLAG_COL in dff.columns:
     s_bia = dff[BIA_FLAG_COL].astype(str).str.lower().str.strip()
     dff["_bia_flag"] = s_bia.isin(["1", "yes", "y", "true", "completed", "done"]).astype(int)
@@ -1389,20 +1405,35 @@ else:
 id_cols = [c for c in [SVC_COL, LOC, DEPT] if c]
 if id_cols:
     reg = (
-        dff[id_cols + ["_impact_band", "_likelihood_band", "_risk_score"]]
+        dff[id_cols + ["_impact_band", "_likelihood_band", "_risk_score", "_disrupt_days"]]
         .groupby(id_cols, dropna=False)
         .agg(
             risk_max=("_risk_score", "max"),
             risk_mean=("_risk_score", "mean"),
-            impact_mean=("_impact_band", "mean"),
-            like_mean=("_likelihood_band", "mean"),
+            impact_mean=("_impact_band", "max"), # Take Max impact for conservative risk rating
+            like_mean=("_likelihood_band", "max"), # Take Max likelihood
+            total_disruption=("_disrupt_days", "sum")
         )
         .reset_index()
         .sort_values(["risk_max", "risk_mean"], ascending=False)
     )
-    st.dataframe(reg.head(30), use_container_width=True, height=320)
+    
+    # Highlight high risk rows
+    def highlight_risk(row):
+        val = row["risk_max"]
+        if val >= 20:
+            return ['background-color: #ffcccb'] * len(row) # Red
+        elif val >= 15:
+            return ['background-color: #ffe5b4'] * len(row) # Orange
+        elif val >= 10:
+            return ['background-color: #ffffe0'] * len(row) # Yellow
+        return [''] * len(row)
+
+    st.dataframe(reg.style.apply(highlight_risk, axis=1), use_container_width=True, height=400)
+    
     if AUTO_INSIGHTS:
         insight_bcms_risk(reg, BCMS_RISK_APPETITE)
+        st.caption(f"**Methodology Note:** Bands are calculated based on Max Disruption Days (Impact) and Total Defect Count (Likelihood) per location.")
 else:
     st.info("BCMS risk register needs at least one of: Service, Location, or Department columns.")
 
@@ -1593,9 +1624,174 @@ if DEPT and found_cats:
         )
 
 # --------------------------
-# 11) Statistical Analysis: Operational Status vs Clinical Disruption
+# 11) AI Predictive Modeling (Linear Regression & Gradient Boosting)
 # --------------------------
-st.markdown("## 11) Statistical Analysis: Operational Status vs Clinical Disruption")
+st.markdown("## 11) AI Predictive Modeling")
+
+if SKLEARN_OK:
+    st.info("Models are trained on the full dataset (ignoring current sidebar filters) to ensure sufficient data size.")
+
+    # --- 1. PREPARATION: Clean Data for ML ---
+    feature_map = {
+        "Mechanical": colmap["mechanical"],
+        "Electrical": colmap["electrical"],
+        "Public": colmap["public"],
+        "Biomedical": colmap["biomedical"],
+        "ICT": colmap["ict"]
+    }
+    
+    valid_feats = {k: v for k, v in feature_map.items() if v and v in df.columns}
+    
+    if len(valid_feats) < 2:
+        st.warning("Not enough defect category columns found to run AI models.")
+    else:
+        # Prepare X (Features)
+        X = df[list(valid_feats.values())].apply(safe_num).fillna(0)
+        
+        # Clean Disruption Days for Target (y)
+        disrupt_col = colmap.get("clinical_disruption_days")
+        if disrupt_col and disrupt_col in df.columns:
+            y_days = pd.to_numeric(
+                df[disrupt_col].astype(str).str.replace(",", "").str.extract(r"(-?\d+\.?\d*)", expand=False),
+                errors='coerce'
+            ).fillna(0)
+        else:
+            y_days = None
+
+        tab_reg, tab_class = st.tabs(["📉 Linear Regression (Predict Disruption)", "🌳 Gradient Boosting (Classify High Risk)"])
+
+        # --- A) LINEAR REGRESSION ---
+        with tab_reg:
+            st.markdown("### Predict Clinical Disruption Days")
+            st.caption("This model attempts to predict how many days of disruption occur based on the number of defects in each category.")
+            
+            if y_days is not None and y_days.sum() > 0:
+                # Train
+                lr = LinearRegression()
+                lr.fit(X, y_days)
+                y_pred = lr.predict(X)
+                r2 = lr.score(X, y_days)
+
+                # Coefficients
+                coef_df = pd.DataFrame({
+                    "Defect Category": list(valid_feats.keys()),
+                    "Impact (Coefficient)": lr.coef_
+                }).sort_values("Impact (Coefficient)", ascending=False)
+
+                # --- Auto-Insight Generator (Regression) ---
+                top_driver = coef_df.iloc[0]
+                driver_name = top_driver["Defect Category"]
+                driver_val = top_driver["Impact (Coefficient)"]
+                
+                if r2 < 0.2:
+                    fit_desc = "weak correlation (other factors likely drive disruption)"
+                elif r2 < 0.5:
+                    fit_desc = "moderate correlation"
+                else:
+                    fit_desc = "strong predictive power"
+
+                insight_text_reg = (
+                    f"**Auto-insight:** The model shows a **{fit_desc}** (R²={r2:.3f}). "
+                    f"The biggest driver of clinical disruption is **{driver_name}** defects: "
+                    f"each additional reported {driver_name} defect adds roughly **{driver_val:.2f} days** of disruption "
+                    "on average, keeping other factors constant."
+                )
+
+                c1, c2 = st.columns([1, 2])
+                with c1:
+                    st.metric("Model R² Score", f"{r2:.3f}", help="1.0 is perfect prediction.")
+                    st.dataframe(coef_df, hide_index=True, use_container_width=True)
+                with c2:
+                    viz_df = pd.DataFrame({"Actual Days": y_days, "Predicted Days": y_pred})
+                    fig_lr = px.scatter(
+                        viz_df, x="Actual Days", y="Predicted Days", 
+                        title="Actual vs. Predicted Disruption Days"
+                    )
+                    min_val = min(y_days.min(), y_pred.min())
+                    max_val = max(y_days.max(), y_pred.max())
+                    fig_lr.add_shape(
+                        type="line", x0=min_val, y0=min_val, x1=max_val, y1=max_val,
+                        line=dict(color="Red", dash="dash"),
+                    )
+                    st.plotly_chart(fig_lr, use_container_width=True)
+                
+                # Show Insight below graph
+                st.info(insight_text_reg)
+
+            else:
+                st.warning("Cannot run Regression: 'Clinical Disruption Days' column missing or empty.")
+
+        # --- B) GRADIENT BOOSTING CLASSIFIER ---
+        with tab_class:
+            st.markdown("### Classify 'High Risk' Locations")
+            st.caption("This model classifies a location as 'High Risk' if its total defects are above the median.")
+            
+            total_def_col = TOTAL_DEFECT if TOTAL_DEFECT in df.columns else None
+            
+            if total_def_col:
+                totals = safe_num(df[total_def_col]).fillna(0)
+                median_val = totals.median()
+                y_class = (totals > median_val).astype(int)
+                
+                X_train, X_test, y_train, y_test = train_test_split(X, y_class, test_size=0.2, random_state=42)
+                
+                gb = GradientBoostingClassifier(n_estimators=100, learning_rate=0.1, max_depth=3, random_state=42)
+                gb.fit(X_train, y_train)
+                y_pred_class = gb.predict(X_test)
+                acc = accuracy_score(y_test, y_pred_class)
+                
+                importances = gb.feature_importances_
+                feat_imp_df = pd.DataFrame({
+                    "Feature": list(valid_feats.keys()),
+                    "Importance": importances
+                }).sort_values("Importance", ascending=False)
+                
+                # --- Auto-Insight Generator (Classification) ---
+                top_feat = feat_imp_df.iloc[0]
+                top_feat_name = top_feat["Feature"]
+                top_feat_score = top_feat["Importance"]
+                
+                if acc > 0.85:
+                    acc_desc = "highly accurate"
+                elif acc > 0.70:
+                    acc_desc = "moderately accurate"
+                else:
+                    acc_desc = "low accuracy"
+
+                insight_text_gb = (
+                    f"**Auto-insight:** The model is **{acc_desc}** ({acc:.1%}) at identifying high-risk locations. "
+                    f"**{top_feat_name}** defects are the single most important indicator "
+                    f"(Importance: {top_feat_score:.2f}), meaning an increase in {top_feat_name} issues "
+                    "is the strongest warning sign that a location will become a hotspot."
+                )
+
+                c1, c2 = st.columns([1, 2])
+                with c1:
+                    st.metric("Model Accuracy", f"{acc:.1%}")
+                    st.write(f"**Threshold (Median):** > {int(median_val)} defects")
+                    st.dataframe(feat_imp_df, hide_index=True, use_container_width=True)
+                with c2:
+                    fig_imp = px.bar(
+                        feat_imp_df, x="Importance", y="Feature", orientation='h',
+                        title="Feature Importance (Gradient Boosting)",
+                        color="Importance", color_continuous_scale="Viridis"
+                    )
+                    fig_imp.update_layout(yaxis={'categoryorder':'total ascending'})
+                    st.plotly_chart(fig_imp, use_container_width=True)
+                
+                # Show Insight below graph
+                st.success(insight_text_gb)
+
+            else:
+                st.warning("Cannot run Classification: Total Defect column missing.")
+
+else:
+    st.error("Scikit-learn not installed. These models cannot run.")
+
+# --------------------------
+# 12) Statistical Analysis: Operational Status vs Clinical Disruption
+# --------------------------
+st.markdown("## 12) Statistical Analysis: Operational Status vs Clinical Disruption")
 
 if OPSTAT and DISRUPT_COL and (OPSTAT in dff.columns) and (DISRUPT_COL in dff.columns):
     st.markdown("""
@@ -1620,7 +1816,7 @@ if OPSTAT and DISRUPT_COL and (OPSTAT in dff.columns) and (DISRUPT_COL in dff.co
     
     if len(analysis_df) > 0:
         # Summary statistics by group
-        st.markdown("### 11.1) Descriptive Statistics")
+        st.markdown("### 12.1) Descriptive Statistics")
         
         summary = analysis_df.groupby('Status_Clean')['Disruption_Days'].agg([
             ('Count', 'count'),
@@ -1651,7 +1847,7 @@ if OPSTAT and DISRUPT_COL and (OPSTAT in dff.columns) and (DISRUPT_COL in dff.co
             )
         
         # Visualization: Box plots
-        st.markdown("### 11.2) Distribution Comparison (Box Plots)")
+        st.markdown("### 12.2) Distribution Comparison (Box Plots)")
         fig_box = px.box(
             analysis_df, 
             x='Status_Clean', 
@@ -1711,7 +1907,7 @@ if OPSTAT and DISRUPT_COL and (OPSTAT in dff.columns) and (DISRUPT_COL in dff.co
             )
         
         # Violin plot for distribution shape
-        st.markdown("### 11.3) Distribution Shape (Violin Plots)")
+        st.markdown("### 12.3) Distribution Shape (Violin Plots)")
         fig_violin = px.violin(
             analysis_df,
             x='Status_Clean',
@@ -1800,7 +1996,7 @@ if OPSTAT and DISRUPT_COL and (OPSTAT in dff.columns) and (DISRUPT_COL in dff.co
                 )
         
         # Statistical Tests
-        st.markdown("### 11.4) Statistical Hypothesis Testing")
+        st.markdown("### 12.4) Statistical Hypothesis Testing")
         
         # Prepare groups for testing
         active_data = analysis_df[analysis_df['Status_Clean'] == 'active']['Disruption_Days']
@@ -1985,7 +2181,7 @@ if OPSTAT and DISRUPT_COL and (OPSTAT in dff.columns) and (DISRUPT_COL in dff.co
             mean_rotation = rotation_data.mean() if len(rotation_data) > 0 else 0
             mean_pending = pending_data.mean() if len(pending_data) > 0 else 0
             
-            st.markdown("### 11.5) Key Findings Summary")
+            st.markdown("### 12.5) Key Findings Summary")
             st.caption(
                 f"**Auto-insights:** Analyzed **{total_locations}** locations. "
                 f"Mean disruption days: Active={mean_active:.1f}, Rotation={mean_rotation:.1f}, Pending={mean_pending:.1f}. "
@@ -1997,9 +2193,9 @@ else:
     st.info("Need OPERATIONAL STATUS and CLINICAL DISRUPTION columns for statistical analysis.")
 
 # --------------------------
-# 12) STATISTICAL ANALYSIS: Active vs (Rotation + Pending)
+# 13) STATISTICAL ANALYSIS: Active vs (Rotation + Pending)
 # --------------------------
-st.markdown("## 12) Statistical Analysis: Active vs (Rotation + Pending)")
+st.markdown("## 13) Statistical Analysis: Active vs (Rotation + Pending)")
 
 if OPSTAT and TOTAL_DEFECT:
     # Prepare comparison groups
@@ -2228,9 +2424,9 @@ else:
 st.write("---")
 
 # --------------------------
-# 12) Data Master Severity & Disruption by Location
+# 14) Data Master Severity & Disruption by Location
 # --------------------------
-st.markdown("## 12) Data Master Severity & Disruption by Location")
+st.markdown("## 14) Data Master Severity & Disruption by Location")
 sev_cols, sev_labels = [], []
 if colmap.get("major_defect"):
     sev_cols.append(colmap["major_defect"]); sev_labels.append("Major Defect")
@@ -2282,9 +2478,9 @@ if LOC and sev_cols:
 else:
     st.info("Need LOCATION and severity columns.")
 # --------------------------
-# 13) Data Master (All Rows & Columns)
+# 15) Data Master (All Rows & Columns)
 # --------------------------
-st.markdown("## 13) Data Master (All Rows & Columns)")
+st.markdown("## 15) Data Master (All Rows & Columns)")
 q = st.text_input("Quick search (matches anywhere in row; case-insensitive):", value="")
 dm = dff.copy()
 if q.strip():
