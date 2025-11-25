@@ -36,7 +36,7 @@ except Exception as e:
 # CONFIG
 # --------------------------
 DASHBOARD_TITLE_LONG = (
-    "AI-Driven Dashboard Model for Service Monitoring, Defect Tracking (DLP) & Risk Management in New MOH Healthcare Facilities - WCC HTPN"
+    "Study on AI-Driven Dashboard Model for Integrated Service Monitoring, Defect Liability Period Tracking (DLP) & Risk Management for New MOH Facility"
 )
 st.set_page_config(page_title=DASHBOARD_TITLE_LONG, layout="wide")
 
@@ -750,9 +750,9 @@ if OPSTAT and picked_stats:
 dff = df.loc[mask].copy()
 
 # --------------------------
-# 1) Number of defect complaints according to level 1 until level 10 WCC
+# 1) Number of defect complaints according to level 1 until level 10
 # --------------------------
-st.markdown("## 1) Number of Defect Complaints According to Level 1 until Level 10 in WCC")
+st.markdown("## 1) Number of Defect Complaints According to Level 1 until Level 10")
 
 if TOTAL_DEFECT and LEVEL:
     g_lvl = (
@@ -792,9 +792,9 @@ else:
 st.write("---")
 
 # --------------------------
-# 2) Number of defect complaints according department in WCC
+# 2) Number of defect complaints according department
 # --------------------------
-st.markdown("## 2) Number of Defect Complaints According Department in WCC")
+st.markdown("## 2) Number of Defect Complaints According Department")
 
 if TOTAL_DEFECT and DEPT:
     g_dept = (
@@ -899,9 +899,9 @@ else:
 st.write("---")
 
 # --------------------------
-# 4) Defect Category According to Level 1 until Level 10 in WCC
+# 4) Defect Category According to Level 1 until Level 10
 # --------------------------
-st.markdown("## 4) Defect Category According to Level 1 until Level 10 in WCC")
+st.markdown("## 4) Defect Category According to Level 1 until Level 10")
 found_cats = {k: v for k, v in cat_cols.items() if v is not None}
 if LEVEL and found_cats:
     melt_cols = list(found_cats.values())
@@ -921,10 +921,10 @@ else:
 
 
 # --------------------------
-# 5) Defect Category According to Department in WCC
+# 5) Defect Category According to Department
 # --------------------------
 
-st.markdown("## 5) Defect Category According to Department in WCC")
+st.markdown("## 5) Defect Category According to Department")
 if DEPT and found_cats:
     melt_cols = list(found_cats.values())
     tmp = dff[[DEPT] + melt_cols].copy().melt(id_vars=[DEPT], var_name="CategoryCol", value_name="Count")
